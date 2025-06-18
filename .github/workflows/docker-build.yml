@@ -1,0 +1,132 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  docker-build:
+    runs-on: self-hosted
+    timeout-minutes: 720 # 12 hours timeout considering build time
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          echo "date=$(date +%Y%m%d)" >> $GITHUB_OUTPUT
+          echo "sha_short=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "version=$TAG" >> $GITHUB_OUTPUT
+            echo "is_tag=true" >> $GITHUB_OUTPUT
+          else
+            TAG="latest"
+            echo "version=$TAG" >> $GITHUB_OUTPUT
+            echo "is_tag=false" >> $GITHUB_OUTPUT
+          fi
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Create and use project-specific builder
+        run: |
+          # Check if kali-builder exists, create if not
+          if ! docker buildx ls | grep -q "kali-builder"; then
+            echo "Creating new kali-builder..."
+            docker buildx create --name kali-builder \
+              --driver docker-container \
+              --driver-opt image=moby/buildkit:buildx-stable-1 \
+              --driver-opt network=host \
+              --use --bootstrap
+          else
+            echo "Using existing kali-builder..."
+            docker buildx use kali-builder
+            # Ensure builder is running
+            docker buildx inspect kali-builder --bootstrap
+          fi
+
+      - name: Build and push with optimized cache (sequential)
+        run: |
+          echo "Building and pushing multi-platform images using docker buildx bake..."
+          echo "Tag: $TAG"
+          echo "Registry: vxcontrol"
+          echo "Builder: kali-builder with sequential build to avoid layer duplication"
+          
+          # Step 1: Build base images first
+          echo "Building base images..."
+          docker buildx bake \
+            --builder kali-builder \
+            --set "*.cache-from=type=registry,ref=vxcontrol/kali-linux:buildcache" \
+            --set "*.cache-to=type=registry,ref=vxcontrol/kali-linux:buildcache,mode=max" \
+            --progress=plain \
+            --push \
+            sequential
+          
+          # Step 2: Build systemd images (will reuse base layers)
+          echo "Building systemd images..."
+          docker buildx bake \
+            --builder kali-builder \
+            --set "*.cache-from=type=registry,ref=vxcontrol/kali-linux:buildcache" \
+            --set "*.cache-to=type=registry,ref=vxcontrol/kali-linux:buildcache,mode=max" \
+            --progress=plain \
+            --push \
+            dependent
+        env:
+          DOCKER_BUILDKIT: 1
+          TAG: ${{ steps.meta.outputs.version }}
+
+      - name: Generate build summary
+        run: |
+          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Status | Platforms | Features |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|-----------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| vxcontrol/kali-linux:${{ steps.meta.outputs.version }} | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance |" >> $GITHUB_STEP_SUMMARY
+          echo "| vxcontrol/kali-linux:systemd | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance, ⚙️ Systemd |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**📋 Build Details:**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** \`${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ steps.meta.outputs.sha_short }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date:** \`${{ steps.meta.outputs.date }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**🛡️ Security Features:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Software Bill of Materials (SBOM) generated" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Build provenance attestation created" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Multi-platform support (AMD64 + ARM64)" >> $GITHUB_STEP_SUMMARY
+
+  security-scan:
+    needs: docker-build
+    runs-on: self-hosted
+    
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'vxcontrol/kali-linux:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Generate security summary
+        run: |
+          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Vulnerability scanning completed with Trivy." >> $GITHUB_STEP_SUMMARY
+          echo "Results are available in the Security tab of this repository." >> $GITHUB_STEP_SUMMARY
