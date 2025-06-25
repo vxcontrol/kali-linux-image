@@ -4,7 +4,7 @@ Lightweight Kali Linux Docker images with curated CLI penetration testing tools 
 
 <div align="center">
 
-> 🚀 **Join Community!** Connect with security researchers, AI enthusiasts, and fellow ethical hackers. Get support, share insights, and stay updated with the latest PentAGI developments.
+> 🚀 **Join the Community!** Connect with security researchers, AI enthusiasts, and fellow ethical hackers. Get support, share insights, and stay updated with the latest PentAGI developments.
 
 [![Discord](https://img.shields.io/badge/Discord-7289DA?logo=discord&logoColor=white)](https://discord.gg/2xrMh7qX6m)
 [![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?logo=telegram&logoColor=white)](https://t.me/+Ka9i6CNwe71hMWQy)
@@ -528,7 +528,6 @@ This project uses Docker Buildx Bake with advanced BuildKit configuration for ef
 - **Sequential dependency builds**: Base images built first, systemd images reuse layers
 - **Persistent builder**: `kali-builder` with smart cache management (50GB limit, automatic GC)
 - **Automatic cache invalidation**: Based on Dockerfile changes and base image updates
-- **Registry + local cache strategy**: vxcontrol/kali-linux:buildcache for team collaboration
 - **Security attestations**: SBOM and provenance generation for published images
 - **Trivy vulnerability scanning**: Optimized scanning with SARIF output to GitHub Security tab
 - **Container metadata**: OCI-compliant labels and annotations
@@ -880,7 +879,6 @@ The project includes advanced BuildKit configuration (`buildkitd.toml`) that aut
 **Performance Benefits:**
 - ✅ **50GB cache capacity** for optimal rebuild performance
 - ✅ **Automatic invalidation** when Dockerfile or base images change
-- ✅ **Registry cache sharing** for team collaboration (`vxcontrol/kali-linux:buildcache`)
 - ✅ **Sequential builds** prevent layer duplication between base/systemd images
 - ✅ **Parallel processing** with stable `max-parallelism = 4` configuration
 

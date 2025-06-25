@@ -69,8 +69,6 @@ jobs:
           echo "Building base images..."
           docker buildx bake \
             --builder kali-builder \
-            --set "*.cache-from=type=registry,ref=vxcontrol/kali-linux:buildcache" \
-            --set "*.cache-to=type=registry,ref=vxcontrol/kali-linux:buildcache,mode=max" \
             --progress=plain \
             --push \
             sequential
@@ -79,8 +77,6 @@ jobs:
           echo "Building systemd images..."
           docker buildx bake \
             --builder kali-builder \
-            --set "*.cache-from=type=registry,ref=vxcontrol/kali-linux:buildcache" \
-            --set "*.cache-to=type=registry,ref=vxcontrol/kali-linux:buildcache,mode=max" \
             --progress=plain \
             --push \
             dependent
