@@ -507,11 +507,21 @@ For detailed integration examples and API documentation, visit the [PentAGI repo
 - 15GB+ available disk space
 
 ### Build System Overview
-This project uses Docker Buildx Bake for efficient multi-platform builds. The build configuration is defined in `docker-bake.hcl` and supports:
-- **Multi-platform builds**: linux/amd64, linux/arm64
-- **Automated CI/CD**: Both base and systemd images automatically built and published on Docker Hub
-- **Optimized layer caching** for local development
+This project uses Docker Buildx Bake with advanced BuildKit configuration for efficient multi-platform builds. The build system includes:
+
+**Core Configuration Files:**
+- `docker-bake.hcl` - Declarative build configuration with sequential dependency management
+- `buildkitd.toml` - BuildKit daemon configuration with automatic garbage collection
+- `.github/workflows/docker-build.yml` - CI/CD pipeline with optimized caching and security scanning
+
+**Key Features:**
+- **Multi-platform builds**: linux/amd64, linux/arm64 
+- **Sequential dependency builds**: Base images built first, systemd images reuse layers
+- **Persistent builder**: `kali-builder` with smart cache management (50GB limit, automatic GC)
+- **Automatic cache invalidation**: Based on Dockerfile changes and base image updates
+- **Registry + local cache strategy**: vxcontrol/kali-linux:buildcache for team collaboration
 - **Security attestations**: SBOM and provenance generation for published images
+- **Trivy vulnerability scanning**: Optimized scanning with SARIF output to GitHub Security tab
 - **Container metadata**: OCI-compliant labels and annotations
 
 #### Security & Compliance Features
@@ -532,13 +542,25 @@ Our build system automatically generates security attestations for enhanced supp
 - Build information, documentation links, and licensing details
 - Version tracking and source code traceability
 
+#### CI/CD Pipeline Features
+The GitHub Actions workflow (`.github/workflows/docker-build.yml`) provides:
+
+- **Self-hosted runner optimization**: 12-hour timeout for large image builds
+- **Persistent builder management**: Automatic `kali-builder` creation with `buildkitd.toml` configuration
+- **Sequential build strategy**: Eliminates layer duplication between base and systemd targets
+- **Smart cache management**: Registry cache with automatic garbage collection policies
+- **Security scanning integration**: Trivy vulnerability scanning with GitHub Security tab upload
+- **Build attestations**: Automatic SBOM and provenance generation for supply chain security
+- **Comprehensive reporting**: Build summary with security metrics and cache statistics
+
 #### Migration from Traditional Docker Build
-| Feature | Traditional Approach | Docker Buildx Bake |
-|---------|---------------------|-------------------|
+| Feature | Traditional Approach | Docker Buildx Bake + BuildKit |
+|---------|---------------------|-------------------------------|
 | **Base Image** | `docker build -t local/kali-linux .` | `docker buildx bake base --load` |
 | **Systemd Image** | `docker build --target systemd -t local/kali-linux:systemd .` | `docker buildx bake systemd --load` |
 | **Multi-platform** | Manual builds for each platform | Automatic multi-platform support |
-| **Configuration** | Command-line parameters | Declarative `docker-bake.hcl` |
+| **Configuration** | Command-line parameters | Declarative `docker-bake.hcl` + `buildkitd.toml` |
+| **Cache Management** | Manual cleanup required | Automatic garbage collection with policies |
 | **Registry Push** | `docker push` after build | `docker buildx bake --push` |
 
 ### Quick Start - Local Testing
@@ -547,25 +569,28 @@ Our build system automatically generates security attestations for enhanced supp
 git clone https://github.com/vxcontrol/kali-linux-image.git
 cd kali-linux-image
 
-# Build base image for ARM64 (Apple Silicon)
-docker buildx bake base --set="base.platform=linux/arm64" \
-  --set="base.tags=local/kali-linux:latest" --load
+# Create optimized builder (one-time setup)
+docker buildx create --name kali-builder \
+  --driver docker-container \
+  --driver-opt image=moby/buildkit:buildx-stable-1 \
+  --driver-opt network=host \
+  --config ./buildkitd.toml \
+  --use --bootstrap
 
-# Build base image for AMD64 (Intel/AMD)
-docker buildx bake base --set="base.platform=linux/amd64" \
-  --set="base.tags=local/kali-linux:latest" --load
+# Build base image for current platform
+docker buildx bake base --set="base.tags=local/kali-linux:latest" --load
 
-# Build both base and systemd images (if needed)
-docker buildx bake --set="*.platform=linux/arm64" \
+# Build with automatic cache management
+docker buildx bake base --load \
   --set="base.tags=local/kali-linux:latest" \
-  --set="systemd.tags=local/kali-linux:systemd" \
-  --load
+  --set="*.cache-from=type=registry,ref=vxcontrol/kali-linux:buildcache" \
+  --set="*.cache-to=type=registry,ref=vxcontrol/kali-linux:buildcache,mode=max"
 
-# For faster rebuilds, use local cache
-mkdir -p /tmp/.buildx-cache
-docker buildx bake --load \
-  --set="*.cache-from=type=local,src=/tmp/.buildx-cache" \
-  --set="*.cache-to=type=local,dest=/tmp/.buildx-cache,mode=max"
+# Build both base and systemd sequentially (recommended)
+docker buildx bake sequential --load \
+  --set="base.tags=local/kali-linux:latest"
+docker buildx bake dependent --load \
+  --set="systemd.tags=local/kali-linux:systemd"
 
 # Test the build
 docker run --rm -it local/kali-linux:latest bash
@@ -654,25 +679,29 @@ docker buildx bake --push \
 
 ### Advanced Build Options
 ```bash
-# Build with custom build arguments
-docker buildx bake --set="*.args.DEBIAN_FRONTEND=noninteractive" --load
+# Build with custom registry and version variables
+TAG=v1.2.3 REGISTRY=myregistry docker buildx bake --push
 
 # Build specific version tags
 docker buildx bake --push \
   --set="base.tags=vxcontrol/kali-linux:latest,vxcontrol/kali-linux:v2024.1" \
   --set="systemd.tags=vxcontrol/kali-linux:systemd,vxcontrol/kali-linux:systemd-v2024.1"
 
-# Build with custom registry and version variables
-TAG=v1.2.3 REGISTRY=myregistry docker buildx bake --push
+# Build with optimized builder configuration
+docker buildx bake --builder kali-builder --push \
+  --set="*.cache-from=type=registry,ref=vxcontrol/kali-linux:buildcache" \
+  --set="*.cache-to=type=registry,ref=vxcontrol/kali-linux:buildcache,mode=max"
 
-# Build with local cache optimization (for repeated local builds)
-docker buildx bake --push --set="*.cache-from=type=local,src=/tmp/.buildx-cache" --set="*.cache-to=type=local,dest=/tmp/.buildx-cache,mode=max"
-
-# Build with registry cache (for team collaboration)
-docker buildx bake --push --set="*.cache-from=type=registry,ref=vxcontrol/kali-linux:cache" --set="*.cache-to=type=registry,ref=vxcontrol/kali-linux:cache,mode=max"
-
-# Local build without attestations (faster for development)
+# Local development build without attestations (faster)
 docker buildx bake --load --set="base.attest=" --set="systemd.attest="
+
+# Sequential build for production (recommended)
+docker buildx bake sequential --push
+docker buildx bake dependent --push
+
+# Monitor cache usage and garbage collection
+docker system df
+docker buildx du --builder kali-builder
 ```
 
 ### Working with Security Attestations
@@ -703,17 +732,51 @@ docker scout compliance vxcontrol/kali-linux:latest
 ```
 
 ### Build Configuration
-The build configuration is defined in `docker-bake.hcl`:
-- **Base target**: Lightweight Kali Linux with essential tools (automatically built and published)
-- **Systemd target**: Extended image with systemctl support (automatically built and published)
+
+#### docker-bake.hcl Structure
+The build configuration defines multiple targets and groups:
+
+```bash
+# Build groups for sequential dependency management
+group "sequential" {     # Base images only
+  targets = ["base"]
+}
+
+group "dependent" {      # Systemd images (requires base)
+  targets = ["systemd"]
+}
+
+group "default" {        # All images (parallel)
+  targets = ["base", "systemd"]
+}
+```
+
+**Target Features:**
+- **Base target**: Lightweight Kali Linux with 200+ CLI tools
+- **Systemd target**: Extended image with systemctl support via docker-systemctl-replacement
 - **Multi-platform support**: Automatic builds for ARM64 and AMD64
-- **Tag management**: Configurable tags for different registries
-- **Security attestations**: Automatic SBOM and provenance generation for published images
-- **OCI metadata**: Complete labeling and documentation
+- **Layer optimization**: Systemd target reuses base layers via `contexts = { base = "target:base" }`
+- **Security attestations**: SBOM and provenance generation for published images
+- **OCI metadata**: Complete labeling following OpenContainer standards
+
+#### buildkitd.toml Configuration
+Advanced BuildKit daemon configuration with automatic cache management:
+
+```toml
+# Cache limits optimized for powerful servers
+reservedSpace = "10GB"      # Minimum cache reservation
+maxUsedSpace = "50GB"       # Maximum cache before GC
+minFreeSpace = "20GB"       # Keep disk space free
+max-parallelism = 4         # Stable build parallelism
+
+# Automatic garbage collection policies
+# Policy 1: Cleanup temporary files (12h retention)
+# Policy 2: Remove old cache (5 days retention) 
+# Policy 3: Clean unshared layers (space-based)
+# Policy 4: Emergency cleanup (critical space)
+```
 
 #### Configuration Variables
-The build system supports environment variables for customization:
-
 ```bash
 # Available variables
 TAG=latest          # Version tag (default: latest)
@@ -724,34 +787,34 @@ TAG=v1.0.0 docker buildx bake --push
 REGISTRY=ghcr.io/myorg TAG=dev docker buildx bake --load
 ```
 
-#### Security Features Configuration
-All security features are enabled by default in `docker-bake.hcl`:
-
-- **SBOM Generation**: `attest = ["type=sbom"]`
-- **Provenance**: `attest = ["type=provenance,mode=max"]`
-- **OCI Labels**: Complete metadata including source, documentation, licenses
-
-Note: GitHub Actions cache optimization is configured in CI/CD workflow only and does not affect local builds.
-
-#### Cache Types Comparison
-| Cache Type | Use Case | Pros | Cons |
-|------------|----------|------|------|
-| **GitHub Actions** (`type=gha`) | CI/CD workflows | Free, automatic, fast | GitHub-only, not for local |
-| **Local** (`type=local`) | Local development | Fast rebuilds, no network | Local machine only |
-| **Registry** (`type=registry`) | Team collaboration | Shared across team/machines | Requires registry space |
-| **Inline** (`type=inline`) | Simple sharing | Built into image | Increases image size |
+#### Cache Strategy Comparison
+| Cache Type | Use Case | Configuration | Performance |
+|------------|----------|---------------|-------------|
+| **Registry** (`buildcache`) | CI/CD + team collaboration | Automatic in workflow | High, shared |
+| **BuildKit Local** | Local development | `buildkitd.toml` managed | Very high, automatic GC |
+| **Combined Strategy** | Production setup | Registry + local with GC | Optimal |
 
 ## System Requirements
 
 ### Minimum Requirements
-- 1GB RAM
-- 1 CPU core
-- 7GB disk space
+- 2GB RAM
+- 2 CPU core  
+- 15GB disk space
+- Docker 20.10+ with BuildKit enabled
+- Docker Buildx plugin
 
 ### Recommended for Production
-- 2GB+ RAM
-- 2+ CPU cores
-- 10GB+ disk space for results storage
+- 8GB+ RAM (for BuildKit caching and parallel builds)
+- 4+ CPU cores (matches `max-parallelism = 4` in buildkitd.toml)
+- 80GB+ disk space (50GB cache + 20GB free + working space)
+- SSD storage for optimal BuildKit performance
+
+### BuildKit Cache Requirements
+The `buildkitd.toml` configuration is optimized for servers with:
+- **Minimum 80GB free disk space** (50GB cache + 20GB reserved + working space)
+- **8-16GB RAM** for efficient parallel building (`max-parallelism = 4`)  
+- **Fast storage** (SSD recommended) for cache performance
+- **Reliable network** for registry cache synchronization
 
 ## Advanced Usage Scenarios
 
@@ -793,6 +856,42 @@ docker run --rm -it \
 **Required Capabilities:**
 - `NET_ADMIN`: Network interface configuration, routing tables
 - `NET_RAW`: Raw socket access for packet crafting
+
+## Build Performance & Optimization
+
+### Automatic Cache Management
+The project includes advanced BuildKit configuration (`buildkitd.toml`) that automatically manages cache lifecycle:
+
+**Garbage Collection Policies:**
+- **Temporary cleanup** (12h): Removes build contexts, git checkouts, cache mounts
+- **Long-term cache** (5 days): Cleans unused layers older than 5 days  
+- **Space management**: Removes unshared cache when approaching limits
+- **Emergency cleanup**: Automatically frees space when critically low
+
+**Performance Benefits:**
+- ✅ **50GB cache capacity** for optimal rebuild performance
+- ✅ **Automatic invalidation** when Dockerfile or base images change
+- ✅ **Registry cache sharing** for team collaboration (`vxcontrol/kali-linux:buildcache`)
+- ✅ **Sequential builds** prevent layer duplication between base/systemd images
+- ✅ **Parallel processing** with stable `max-parallelism = 4` configuration
+
+### CI/CD Pipeline Optimization
+The GitHub Actions workflow includes enterprise-grade optimizations:
+
+**Smart Build Strategy:**
+```yaml
+# Step 1: Build base images first
+docker buildx bake sequential --push
+
+# Step 2: Build systemd images (reuse base layers)  
+docker buildx bake dependent --push
+```
+
+**Security Integration:**
+- **Trivy vulnerability scanning** with optimized settings (60min timeout, skip large files)
+- **SARIF upload** to GitHub Security tab for vulnerability tracking
+- **SBOM generation** for supply chain compliance
+- **Build provenance** with maximum security attestation
 
 ## Tool Validation
 
@@ -880,18 +979,25 @@ Contributions are welcome! Please:
 ## Project Structure
 
 ```
-kali-linux-image/
-├── Dockerfile              # Multi-stage Dockerfile (base + systemd targets)
-├── docker-bake.hcl         # Docker Buildx Bake configuration
-├── container-entrypoint.sh # Entrypoint script for systemd image
-├── test-tools.sh           # Tool validation script
-└── README.md               # Documentation
+/
+├── .github/
+│   └── workflows/
+│       └── docker-build.yml    # CI/CD pipeline with optimized caching
+├── buildkitd.toml              # BuildKit configuration with automatic GC
+├── container-entrypoint.sh     # Entrypoint script for systemd image
+├── docker-bake.hcl             # Docker Buildx Bake configuration
+├── Dockerfile                  # Multi-stage Dockerfile (base + systemd targets)
+├── LICENSE                     # MIT License
+├── README.md                   # Documentation
+└── test-tools.sh               # Tool validation script
 ```
 
 ## Related Projects
 
 - [PentAGI - Autonomous AI Penetration Testing](https://github.com/vxcontrol/pentagi/) - Primary use case for these Docker images
 - [Official Kali Docker Images](https://hub.docker.com/r/kalilinux/kali-rolling)
+- [Docker BuildKit Documentation](https://docs.docker.com/build/buildkit/)
+- [Docker Buildx Bake Reference](https://docs.docker.com/engine/reference/commandline/buildx_bake/)
 - [Kali Linux Documentation](https://www.kali.org/docs/containers/)
 - [Docker Security Best Practices](https://docs.docker.com/engine/security/)
 
