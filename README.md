@@ -2,6 +2,15 @@
 
 Lightweight Kali Linux Docker images with curated CLI penetration testing tools for headless environments. This project provides optimized Docker images for security research, penetration testing, and cybersecurity training.
 
+<div align="center">
+
+> 🚀 **Join Community!** Connect with security researchers, AI enthusiasts, and fellow ethical hackers. Get support, share insights, and stay updated with the latest PentAGI developments.
+
+[![Discord](https://img.shields.io/badge/Discord-7289DA?logo=discord&logoColor=white)](https://discord.gg/2xrMh7qX6m)
+[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?logo=telegram&logoColor=white)](https://t.me/+Ka9i6CNwe71hMWQy)
+
+</div>
+
 ## Description
 
 This repository contains Docker configurations for building streamlined Kali Linux containers specifically optimized for AI-driven automated penetration testing. While suitable for manual security research, these images are primarily designed for autonomous AI agents to execute penetration testing workflows in headless environments.
