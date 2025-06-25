@@ -19,7 +19,7 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: 'vxcontrol'
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata
@@ -116,23 +116,37 @@ jobs:
     runs-on: self-hosted
     
     steps:
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'vxcontrol/kali-linux:latest'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          # Optimize scanning for large images
-          scanners: 'vuln'
-          timeout: '60m'
-          # Skip problematic files
-          skip-files: '**/*.dll,**/*.exe,**/libstdc++-6.dll'
-          # Additional optimizations
-          severity: 'CRITICAL,HIGH'
-          skip-dirs: '/usr/lib/gcc,/usr/share/doc'
-        env:
-          # Stability improvements via environment variables
-          TRIVY_PARALLEL: '4'
+      - name: Pull target image locally to avoid streaming issues
+        run: |
+          echo "Pre-pulling target image for stable scanning..."
+          docker pull vxcontrol/kali-linux:latest
+          echo "✅ Target image available locally"
+      
+      - name: Run Trivy vulnerability scanner via Docker (stable approach)
+        run: |
+          echo "Running Trivy scan using Docker with docker.sock access..."
+          
+          # Simplified approach without host cache mapping (ephemeral scan)
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$(pwd):$(pwd)" \
+            -w "$(pwd)" \
+            --memory=4g \
+            --memory-swap=8g \
+            -e TRIVY_PARALLEL=4 \
+            aquasec/trivy:0.63.0 \
+            image \
+            --format sarif \
+            --output trivy-results.sarif \
+            --scanners vuln \
+            --timeout 60m \
+            --severity CRITICAL,HIGH \
+            --skip-files '**/*.dll,**/*.exe,**/libstdc++-6.dll' \
+            --skip-dirs '/usr/lib/gcc,/usr/share/doc' \
+            --quiet \
+            vxcontrol/kali-linux:latest
+            
+          echo "✅ Trivy scan completed"
         continue-on-error: true
 
       - name: Verify SARIF file exists
@@ -186,3 +200,11 @@ jobs:
             echo "- 🔍 **Check logs** above for timeout or scanning errors" >> $GITHUB_STEP_SUMMARY
             echo "- 💡 **Tip:** Large images may require scanning optimization" >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Cleanup local resources
+        if: always()
+        run: |
+          echo "Cleaning up local resources..."
+          docker rmi vxcontrol/kali-linux:latest 2>/dev/null || echo "Target image not found"
+          docker rmi aquasec/trivy:0.63.0 2>/dev/null || echo "Trivy image not found"          
+          echo "✅ Cleanup completed"
