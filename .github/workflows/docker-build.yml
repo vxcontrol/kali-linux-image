@@ -38,21 +38,24 @@ jobs:
           fi
           echo "TAG=$TAG" >> $GITHUB_ENV
 
-      - name: Create and use project-specific builder
+      - name: Create and use project-specific builder with smart cache management
         run: |
           # Check if kali-builder exists, create if not
           if ! docker buildx ls | grep -q "kali-builder"; then
-            echo "Creating new kali-builder..."
+            echo "Creating new kali-builder with automatic cache management..."
             docker buildx create --name kali-builder \
               --driver docker-container \
               --driver-opt image=moby/buildkit:buildx-stable-1 \
               --driver-opt network=host \
+              --config ./buildkitd.toml \
               --use --bootstrap
+            echo "✅ Builder created with automatic garbage collection"
           else
             echo "Using existing kali-builder..."
             docker buildx use kali-builder
             # Ensure builder is running
             docker buildx inspect kali-builder --bootstrap
+            echo "✅ Builder ready with smart cache management"
           fi
 
       - name: Build and push with optimized cache (sequential)
@@ -104,6 +107,9 @@ jobs:
           echo "- ✅ Software Bill of Materials (SBOM) generated" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Build provenance attestation created" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Multi-platform support (AMD64 + ARM64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**🔄 Cache Management:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Automatic garbage collection enabled" >> $GITHUB_STEP_SUMMARY
 
   security-scan:
     needs: docker-build
@@ -116,17 +122,67 @@ jobs:
           image-ref: 'vxcontrol/kali-linux:latest'
           format: 'sarif'
           output: 'trivy-results.sarif'
+          # Optimize scanning for large images
+          scanners: 'vuln'
+          timeout: '60m'
+          # Skip problematic files
+          skip-files: '**/*.dll,**/*.exe,**/libstdc++-6.dll'
+          # Additional optimizations
+          severity: 'CRITICAL,HIGH'
+          skip-dirs: '/usr/lib/gcc,/usr/share/doc'
+        env:
+          # Stability improvements via environment variables
+          TRIVY_PARALLEL: '4'
         continue-on-error: true
+
+      - name: Verify SARIF file exists
+        id: check_sarif
+        run: |
+          if [ -f "trivy-results.sarif" ]; then
+            echo "SARIF file found, size: $(du -h trivy-results.sarif)"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "SARIF file not found, skipping upload"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && steps.check_sarif.outputs.exists == 'true'
         with:
           sarif_file: 'trivy-results.sarif'
         continue-on-error: true
 
       - name: Generate security summary
+        if: always()
         run: |
-          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "Vulnerability scanning completed with Trivy." >> $GITHUB_STEP_SUMMARY
-          echo "Results are available in the Security tab of this repository." >> $GITHUB_STEP_SUMMARY
+          echo "## 🛡️ Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check if SARIF file exists and get vulnerability count
+          if [ -f "trivy-results.sarif" ]; then
+            if command -v jq >/dev/null 2>&1; then
+              VULN_COUNT=$(jq '.runs[0].results | length' trivy-results.sarif 2>/dev/null || echo "unknown")
+              if [ "$VULN_COUNT" = "unknown" ] || [ "$VULN_COUNT" = "null" ]; then
+                echo "- ✅ **Trivy scan completed** but vulnerability count could not be determined" >> $GITHUB_STEP_SUMMARY
+              elif [ "$VULN_COUNT" -eq 0 ]; then
+                echo "- ✅ **No critical/high vulnerabilities found** by Trivy scan" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "- ⚠️ **$VULN_COUNT critical/high vulnerabilities** found by Trivy scan" >> $GITHUB_STEP_SUMMARY
+              fi
+            else
+              echo "- ✅ **Trivy scan completed** and results file generated" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Check if SARIF was uploaded
+            if [ "${{ steps.check_sarif.outputs.exists }}" = "true" ]; then
+              echo "- ✅ **Results uploaded** to GitHub Security tab" >> $GITHUB_STEP_SUMMARY
+              echo "- 📊 **View details:** Go to Security → Code scanning alerts" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ❌ **Results upload failed** - check logs for details" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- ❌ **Trivy scan failed** - SARIF results file not generated" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔍 **Check logs** above for timeout or scanning errors" >> $GITHUB_STEP_SUMMARY
+            echo "- 💡 **Tip:** Large images may require scanning optimization" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,47 @@
+# BuildKit configuration for kali-builder
+# Enables automatic cache invalidation when Dockerfile or base images change
+
+debug = false
+
+[worker.oci]
+  enabled = true
+  # Enable garbage collection
+  gc = true
+  
+  # Cache storage limits
+  # Reserve minimum 10GB for cache to maintain performance
+  reservedSpace = "10GB"
+  # Maximum cache size before GC triggers
+  maxUsedSpace = "50GB" 
+  # Keep at least 20GB free disk space
+  minFreeSpace = "20GB"
+  
+  # Reduce parallelism for stability
+  max-parallelism = 4
+
+# GC Policy 1: Aggressive cleanup of temporary build contexts
+# Remove local contexts, git checkouts, and cache mounts older than 12 hours
+[[worker.oci.gcpolicy]]
+  filters = ["type==source.local", "type==exec.cachemount", "type==source.git.checkout"]
+  keepDuration = "12h"
+  maxUsedSpace = "4GB"
+
+# GC Policy 2: Clean old unused cache
+# Remove unused cache older than 5 days when exceeding limits
+[[worker.oci.gcpolicy]]
+  keepDuration = "120h"
+  reservedSpace = "10GB"
+  maxUsedSpace = "45GB"
+
+# GC Policy 3: Remove unshared cache when space is low
+# This removes layers that aren't shared with other builds
+[[worker.oci.gcpolicy]]
+  reservedSpace = "5GB"
+  maxUsedSpace = "50GB"
+
+# GC Policy 4: Emergency cleanup - remove all cache if necessary
+# Only triggers when disk space is critically low
+[[worker.oci.gcpolicy]]
+  all = true
+  reservedSpace = "5GB"
+  maxUsedSpace = "55GB"
