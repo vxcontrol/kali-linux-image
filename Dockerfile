@@ -11,7 +11,7 @@ RUN apt update && \
         arp-scan arping fping hping3 netdiscover nbtscan onesixtyone \
         sublist3r dnsrecon fierce ncrack \
         # Web testing
-        sqlmap wfuzz nuclei feroxbuster dirsearch \
+        sqlmap wfuzz nuclei feroxbuster dirsearch zaproxy \
         # Brute force and passwords
         hydra john john-data crunch medusa patator wordlists \
         hashid hash-identifier hashcat hashcat-data hashcat-utils \
@@ -36,11 +36,8 @@ RUN apt update && \
         radare2 gdb-multiarch file binutils ropper \
         # Other useful tools
         exploitdb commix davtest skipfish wpscan assetfinder \
-        # Python libraries for pentesting
-        python3-pip python3-impacket python3-scapy python3-requests \
-        python3-paramiko python3-pexpect python3-bs4 \
-        python3-shodan python3-censys python3-ldap3 python3-winrm \
-        python3-venv python3-dev python3-pwntools \
+        # Python interpreter and libraries
+        python3-pip python3-venv python3-dev \
         # Build tools
         build-essential gcc g++ make cmake libpcap-dev \
         # Network utilities
@@ -68,12 +65,38 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm go.tar.gz && \
     mkdir -p /root/go/bin /root/go/src /root/go/pkg
 
+# Create Python virtual environment
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV --copies --clear
+
+# Add venv to PATH
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Upgrade pip to latest version
+RUN python -m ensurepip --upgrade && \
+    python -m pip install --upgrade pip setuptools wheel
+
+# Install additional Python packages in virtual environment
+RUN pip install --no-cache-dir \
+    paramiko \
+    pexpect \
+    beautifulsoup4 \
+    shodan \
+    censys \
+    ldap3 \
+    pywinrm \
+    pwntools \
+    impacket \
+    scapy
+
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOPATH="/root/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
 ENV CGO_ENABLED=1
 
-RUN echo "export PATH=/usr/local/go/bin:$PATH" >> /root/.bashrc && \
+RUN echo "export PATH=$VIRTUAL_ENV/bin:\$PATH" >> /root/.bashrc && \
+    echo "export VIRTUAL_ENV=$VIRTUAL_ENV" >> /root/.bashrc && \
+    echo "export PATH=/usr/local/go/bin:\$PATH" >> /root/.bashrc && \
     echo "export GOPATH=/root/go" >> /root/.bashrc && \
     echo "export PATH=\$GOPATH/bin:\$PATH" >> /root/.bashrc && \
     mkdir -p ~/.config/pip && \
