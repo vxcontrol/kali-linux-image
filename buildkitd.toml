@@ -16,6 +16,11 @@ debug = false
   # Reduce parallelism for stability
   max-parallelism = 4
 
+# Registry configuration for insecure HTTP registry
+[registry."kali-cache-registry:5000"]
+  http = true
+  insecure = true
+
 # GC Policy 1: Minimal interference during builds
 # Remove only old temporary contexts with high limits
 [[worker.oci.gcpolicy]]
