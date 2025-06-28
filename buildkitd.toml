@@ -7,41 +7,35 @@ debug = false
   enabled = true
   # Enable garbage collection
   gc = true
-  
-  # Cache storage limits
-  # Reserve minimum 10GB for cache to maintain performance
-  reservedSpace = "10GB"
-  # Maximum cache size before GC triggers
-  maxUsedSpace = "50GB" 
-  # Keep at least 20GB free disk space
-  minFreeSpace = "20GB"
-  
+
+  # Cache storage limits - increased for stable single-run builds
+  reservedSpace = "25GB"
+  maxUsedSpace = "90GB"
+  minFreeSpace = "30GB"
+
   # Reduce parallelism for stability
   max-parallelism = 4
 
-# GC Policy 1: Aggressive cleanup of temporary build contexts
-# Remove local contexts, git checkouts, and cache mounts older than 12 hours
+# GC Policy 1: Minimal interference during builds
+# Remove only old temporary contexts with high limits
 [[worker.oci.gcpolicy]]
   filters = ["type==source.local", "type==exec.cachemount", "type==source.git.checkout"]
-  keepDuration = "12h"
-  maxUsedSpace = "4GB"
+  keepDuration = "72h"
+  maxUsedSpace = "85GB"
 
-# GC Policy 2: Clean old unused cache
-# Remove unused cache older than 5 days when exceeding limits
+# GC Policy 2: Main cache preservation with extended retention
 [[worker.oci.gcpolicy]]
-  keepDuration = "120h"
-  reservedSpace = "10GB"
-  maxUsedSpace = "45GB"
+  keepDuration = "336h"
+  reservedSpace = "25GB"
+  maxUsedSpace = "90GB"
 
-# GC Policy 3: Remove unshared cache when space is low
-# This removes layers that aren't shared with other builds
+# GC Policy 3: Unshared cache - careful cleanup
 [[worker.oci.gcpolicy]]
-  reservedSpace = "5GB"
-  maxUsedSpace = "50GB"
+  reservedSpace = "20GB"
+  maxUsedSpace = "95GB"
 
-# GC Policy 4: Emergency cleanup - remove all cache if necessary
-# Only triggers when disk space is critically low
+# GC Policy 4: Emergency cleanup only at critical disk usage
 [[worker.oci.gcpolicy]]
   all = true
-  reservedSpace = "5GB"
-  maxUsedSpace = "55GB"
+  reservedSpace = "15GB"
+  maxUsedSpace = "100GB"
