@@ -8,7 +8,7 @@ on:
 jobs:
   docker-build:
     runs-on: self-hosted
-    timeout-minutes: 720 # 12 hours timeout considering build time
+    timeout-minutes: 900 # 15 hours timeout for large Kali images with registry cache
 
     steps:
       - name: Checkout repository
@@ -16,28 +16,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check cache registry availability
+      - name: Check cache registry availability and health
         run: |
-          echo "=== Checking cache registry availability ==="
+          echo "=== Checking cache registry availability and health ==="
 
-          # Check if registry is accessible
-          if curl -f http://localhost:5000/v2/ >/dev/null 2>&1; then
-            echo "✅ Cache registry is available at localhost:5000"
-
-            # Check cache namespace
-            if curl -s http://localhost:5000/v2/kali-cache/tags/list >/dev/null 2>&1; then
-              echo "✅ Cache namespace accessible"
-            else
-              echo "⚠️ Cache namespace not accessible (first run?)"
-            fi
-
-            # Show existing cache
-            echo "=== Existing cache images ==="
-            curl -s http://localhost:5000/v2/kali-cache/tags/list | jq '.' || echo "No cache or jq not available"
-          else
+          # Check for registry to be healthy
+          if ! curl -f http://localhost:5000/v2/ >/dev/null 2>&1; then
             echo "❌ Cache registry not available at localhost:5000"
             echo "Please, setup new local registry"
             exit 1
+          fi
+
+          # Check cache namespace
+          if curl -s http://localhost:5000/v2/kali-cache/tags/list >/dev/null 2>&1; then
+            echo "✅ Cache namespace accessible"
+          else
+            echo "⚠️ Cache namespace not accessible (first run?)"
+          fi
+
+          # Show existing cache
+          echo "=== Existing cache images ==="
+          curl -s http://localhost:5000/v2/kali-cache/tags/list | jq '.' || echo "No cache or jq not available"
+
+          # Test registry write capability
+          echo "🧪 Testing registry write capability..."
+          if curl -X POST http://localhost:5000/v2/test-namespace/blobs/uploads/ >/dev/null 2>&1; then
+            echo "✅ Registry accepts write operations"
+          else
+            echo "⚠️ Registry write test failed (might be OK for first run)"
           fi
 
       - name: Login to Docker Hub
@@ -134,8 +140,8 @@ jobs:
             --builder $BUILDER_NAME \
             --progress=plain \
             --push \
-            --set="base.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest" \
-            --set="base.cache-to=type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest,mode=max,image-manifest=true,oci-mediatypes=true" \
+            --set="base.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest,registry.insecure=true" \
+            --set="base.cache-to=type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest,mode=max,image-manifest=true,oci-mediatypes=true,registry.insecure=true" \
             sequential
 
           echo "📊 Cache status after base build:"
@@ -147,9 +153,9 @@ jobs:
             --builder $BUILDER_NAME \
             --progress=plain \
             --push \
-            --set="systemd.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest" \
-            --set="systemd.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:systemd-latest" \
-            --set="systemd.cache-to=type=registry,ref=$CACHE_REGISTRY/kali-cache:systemd-latest,mode=max,image-manifest=true,oci-mediatypes=true" \
+            --set="systemd.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest,registry.insecure=true" \
+            --set="systemd.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:systemd-latest,registry.insecure=true" \
+            --set="systemd.cache-to=type=registry,ref=$CACHE_REGISTRY/kali-cache:systemd-latest,mode=max,image-manifest=true,oci-mediatypes=true,registry.insecure=true" \
             dependent
         env:
           DOCKER_BUILDKIT: 1
@@ -164,7 +170,7 @@ jobs:
           docker buildx build \
             --builder $BUILDER_NAME \
             --platform linux/$(dpkg --print-architecture) \
-            --cache-from type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest \
+            --cache-from type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest,registry.insecure=true \
             --target base \
             --tag vxcontrol/kali-linux:scan-target \
             --load \
