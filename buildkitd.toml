@@ -14,24 +14,40 @@ debug = false
   minFreeSpace = "30GB"
 
   # Reduce parallelism for stability and SBOM generation
-  max-parallelism = 2
+  max-parallelism = 1
 
 # Registry configuration for insecure HTTP registry
 [registry."kali-cache-registry:5000"]
   http = true
   insecure = true
 
-# SBOM scanner configuration for stability
+# SBOM scanner configuration for stability  
 [worker.oci.attestations]
-  # Increase timeout for SBOM generation on large images
+  # Conservative timeout for SBOM generation
   timeout = "60m"
-  # Limit memory usage
-  memory = "4GB"
+  memory = "3GB"
 
-# Specific SBOM scanner settings
+# Specific SBOM scanner settings with aggressive memory limits
 [scanner."docker.io/docker/buildkit-syft-scanner:stable-1"]
   timeout = "60m"
-  memory = "4GB"
+  memory = "3GB"
+  # Strict resource limits for container
+  limits = { memory = "3GB", cpus = "3.0" }
+  # Environment variables for syft stability and aggressive memory control
+  env = [
+    "SYFT_LOG_LEVEL=warn",
+    "SYFT_FAIL_ON_ERROR=false", 
+    "SYFT_PYTHON_CATALOGER_GUESS_UNPINNED_REQUIREMENTS=false",
+    "SYFT_CATALOGER_ENABLED=true",
+    "SYFT_PACKAGE_SEARCH_LAYER_LIMIT=200",
+    # Aggressive memory optimization
+    "GOMEMLIMIT=2GiB",
+    "GOGC=50",
+    "SYFT_MAX_PARALLEL_WORKERS=1",
+    # Additional memory-saving options
+    "SYFT_DISABLE_RECURSIVE_PACKAGE_SEARCH=true",
+    "SYFT_PYTHON_CATALOGER_MAX_WORKER_COUNT=1"
+  ]
 
 # GC Policy 1: Minimal interference during builds
 # Remove only old temporary contexts with high limits

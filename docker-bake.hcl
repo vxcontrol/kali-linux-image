@@ -32,10 +32,10 @@ target "base" {
     "${REGISTRY}/kali-linux:latest"
   ]
   
-  # Security and compliance features
+  # Security and compliance features - use stable SBOM scanner
   attest = [
     "type=provenance,mode=max",
-    "type=sbom"
+    "type=sbom,scanner=docker.io/docker/buildkit-syft-scanner:stable-1"
   ]
   
   # Build metadata
@@ -67,10 +67,10 @@ target "systemd" {
     base = "target:base"
   }
   
-  # Security and compliance features
+  # Security and compliance features - use stable SBOM scanner
   attest = [
     "type=provenance,mode=max",
-    "type=sbom"
+    "type=sbom,scanner=docker.io/docker/buildkit-syft-scanner:stable-1"
   ]
   
   # Build metadata

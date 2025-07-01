@@ -91,9 +91,13 @@ jobs:
                 --driver docker-container \
                 --driver-opt image=moby/buildkit:buildx-stable-1 \
                 --driver-opt network=kali-build-network \
-                --driver-opt env.BUILDKIT_MAX_PARALLELISM=2 \
-                --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=104857600 \
-                --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=104857600 \
+                --driver-opt env.BUILDKIT_MAX_PARALLELISM=1 \
+                --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=209715200 \
+                --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=52428800 \
+                --driver-opt env.SYFT_LOG_LEVEL=warn \
+                --driver-opt env.SYFT_FAIL_ON_ERROR=false \
+                --driver-opt env.GOMEMLIMIT=5GiB \
+                --driver-opt env.GOGC=100 \
                 --config ./buildkitd.toml \
                 --use \
                 --bootstrap
@@ -105,9 +109,13 @@ jobs:
               --driver docker-container \
               --driver-opt image=moby/buildkit:buildx-stable-1 \
               --driver-opt network=kali-build-network \
-              --driver-opt env.BUILDKIT_MAX_PARALLELISM=2 \
-              --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=104857600 \
-              --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=104857600 \
+              --driver-opt env.BUILDKIT_MAX_PARALLELISM=1 \
+              --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=209715200 \
+              --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=52428800 \
+              --driver-opt env.SYFT_LOG_LEVEL=warn \
+              --driver-opt env.SYFT_FAIL_ON_ERROR=false \
+              --driver-opt env.GOMEMLIMIT=5GiB \
+              --driver-opt env.GOGC=100 \
               --config ./buildkitd.toml \
               --use \
               --bootstrap
