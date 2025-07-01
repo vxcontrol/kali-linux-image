@@ -91,6 +91,9 @@ jobs:
                 --driver docker-container \
                 --driver-opt image=moby/buildkit:buildx-stable-1 \
                 --driver-opt network=kali-build-network \
+                --driver-opt env.BUILDKIT_MAX_PARALLELISM=2 \
+                --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=104857600 \
+                --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=104857600 \
                 --config ./buildkitd.toml \
                 --use \
                 --bootstrap
@@ -102,6 +105,9 @@ jobs:
               --driver docker-container \
               --driver-opt image=moby/buildkit:buildx-stable-1 \
               --driver-opt network=kali-build-network \
+              --driver-opt env.BUILDKIT_MAX_PARALLELISM=2 \
+              --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=104857600 \
+              --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=104857600 \
               --config ./buildkitd.toml \
               --use \
               --bootstrap

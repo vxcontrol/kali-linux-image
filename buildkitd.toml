@@ -13,13 +13,25 @@ debug = false
   maxUsedSpace = "90GB"
   minFreeSpace = "30GB"
 
-  # Reduce parallelism for stability
-  max-parallelism = 4
+  # Reduce parallelism for stability and SBOM generation
+  max-parallelism = 2
 
 # Registry configuration for insecure HTTP registry
 [registry."kali-cache-registry:5000"]
   http = true
   insecure = true
+
+# SBOM scanner configuration for stability
+[worker.oci.attestations]
+  # Increase timeout for SBOM generation on large images
+  timeout = "60m"
+  # Limit memory usage
+  memory = "4GB"
+
+# Specific SBOM scanner settings
+[scanner."docker.io/docker/buildkit-syft-scanner:stable-1"]
+  timeout = "60m"
+  memory = "4GB"
 
 # GC Policy 1: Minimal interference during builds
 # Remove only old temporary contexts with high limits
