@@ -119,29 +119,44 @@ RUN echo "export PATH=$VIRTUAL_ENV/bin:\$PATH" >> /root/.bashrc && \
     echo "[global]" > ~/.config/pip/pip.conf && \
     echo "break-system-packages = true" >> ~/.config/pip/pip.conf
 
-# Install additional Go tools
-RUN set -e && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/httpx/cmd/httpx@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/katana/cmd/katana@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/chaos-client/cmd/chaos@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/shuffledns/cmd/shuffledns@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest && \
-    /usr/local/go/bin/go install github.com/ffuf/ffuf/v2@latest && \
-    /usr/local/go/bin/go install github.com/tomnomnom/waybackurls@latest && \
-    /usr/local/go/bin/go install github.com/lc/gau/v2/cmd/gau@latest && \
-    /usr/local/go/bin/go install github.com/hakluke/hakrawler@latest && \
-    # Additional ProjectDiscovery tools (keyless recon/scanning chain)
-    /usr/local/go/bin/go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/cdncheck/cmd/cdncheck@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/alterx/cmd/alterx@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/simplehttpserver/cmd/simplehttpserver@latest && \
-    /usr/local/go/bin/go install github.com/projectdiscovery/vulnx/v2/cmd/vulnx@latest && \
+# Install additional Go tools.
+# In multi-arch CI the non-native architecture is built under QEMU emulation,
+# where Go's HTTP/2 client intermittently aborts module and checksum-db fetches
+# with "stream error: INTERNAL_ERROR; received from peer". GODEBUG=http2client=0
+# forces HTTP/1.1 for the go command, and a retry wrapper rides out any transient
+# proxy.golang.org / sum.golang.org hiccup. Both are scoped to this build step
+# (not image ENV), so the runtime tools keep HTTP/2.
+RUN set -e; \
+    export GODEBUG=http2client=0; \
+    goinstall() { \
+      i=1; \
+      while [ "$i" -le 5 ]; do \
+        /usr/local/go/bin/go install "$1" && return 0; \
+        echo "kali: go install $1 failed (attempt $i/5), retrying in 6s..." >&2; \
+        i=$((i+1)); sleep 6; \
+      done; \
+      echo "kali: go install $1 failed after 5 attempts" >&2; return 1; \
+    }; \
+    goinstall github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
+    goinstall github.com/projectdiscovery/httpx/cmd/httpx@latest && \
+    goinstall github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    goinstall github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
+    goinstall github.com/projectdiscovery/katana/cmd/katana@latest && \
+    goinstall github.com/projectdiscovery/chaos-client/cmd/chaos@latest && \
+    goinstall github.com/projectdiscovery/shuffledns/cmd/shuffledns@latest && \
+    goinstall github.com/projectdiscovery/dnsx/cmd/dnsx@latest && \
+    goinstall github.com/ffuf/ffuf/v2@latest && \
+    goinstall github.com/tomnomnom/waybackurls@latest && \
+    goinstall github.com/lc/gau/v2/cmd/gau@latest && \
+    goinstall github.com/hakluke/hakrawler@latest && \
+    goinstall github.com/projectdiscovery/tlsx/cmd/tlsx@latest && \
+    goinstall github.com/projectdiscovery/cdncheck/cmd/cdncheck@latest && \
+    goinstall github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest && \
+    goinstall github.com/projectdiscovery/alterx/cmd/alterx@latest && \
+    goinstall github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest && \
+    goinstall github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest && \
+    goinstall github.com/projectdiscovery/simplehttpserver/cmd/simplehttpserver@latest && \
+    goinstall github.com/projectdiscovery/vulnx/v2/cmd/vulnx@latest && \
     rm -rf /root/go/pkg/*
 
 # ligolo-ng ships prebuilt agent/proxy binaries under /usr/share (the Kali
@@ -394,19 +409,29 @@ RUN set -euo pipefail; \
 ARG WITH_NUCLEI_TEMPLATES=true
 RUN set -euo pipefail; \
     if [ "${WITH_NUCLEI_TEMPLATES}" = "true" ]; then \
-      nuclei -ut; \
+      # Force HTTP/1.1 for nuclei's template download: under QEMU emulation in
+      # multi-arch CI its Go HTTP/2 client hits the same "stream error:
+      # INTERNAL_ERROR" as the go tool. Build-scoped only (runtime keeps HTTP/2).
+      export GODEBUG=http2client=0; \
       # `nuclei -ut` exits 0 even when the download fails -- it only WARNs, and
       # it creates the (empty) directory either way, so `test -d` would pass on
       # a failed download and we would ship an image that claims to have
-      # templates and has none. Count them instead. The usual cause of an empty
-      # tree is GitHub rate-limiting the release API from this build host;
-      # retry later, or build with --build-arg WITH_NUCLEI_TEMPLATES=false.
-      count="$(find /root/nuclei-templates -name '*.yaml' | wc -l)"; \
+      # templates and has none. Count them instead, and retry a few times: the
+      # usual cause of an empty tree is GitHub rate-limiting the release API from
+      # this build host. Build with --build-arg WITH_NUCLEI_TEMPLATES=false to skip.
+      count=0; attempt=1; \
+      while [ "$attempt" -le 3 ]; do \
+        nuclei -ut || true; \
+        count="$(find /root/nuclei-templates -name '*.yaml' 2>/dev/null | wc -l)"; \
+        if [ "$count" -ge 100 ]; then break; fi; \
+        echo "kali-mcp: nuclei templates incomplete ($count), retry ${attempt}/3 in 6s..." >&2; \
+        attempt=$((attempt+1)); sleep 6; \
+      done; \
       if [ "$count" -lt 100 ]; then \
         echo "kali-mcp: nuclei template download produced $count templates; see the note above" >&2; \
         exit 1; \
       fi; \
-      echo "kali-mcp: nuclei templates installed"; \
+      echo "kali-mcp: nuclei templates installed ($count templates)"; \
     fi
 
 # ---------------------------------------------------------------------------
