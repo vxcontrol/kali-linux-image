@@ -1,0 +1,23 @@
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local registry
+registry/
+tests/
+
+# MCP gateway: local runtime secrets and state (only .env.example is tracked)
+mcp/.env
+mcp/ssl/
+mcp/state/

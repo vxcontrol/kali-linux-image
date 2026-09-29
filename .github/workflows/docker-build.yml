@@ -139,6 +139,8 @@ jobs:
           echo "Checking for existing cache images..."
           curl -sf http://localhost:5000/v2/kali-cache/manifests/base-latest >/dev/null && echo "✅ Found base cache" || echo "❌ No base cache"
           curl -sf http://localhost:5000/v2/kali-cache/manifests/systemd-latest >/dev/null && echo "✅ Found systemd cache" || echo "❌ No systemd cache"
+          curl -sf http://localhost:5000/v2/kali-cache/manifests/test-latest >/dev/null && echo "✅ Found test cache" || echo "❌ No test cache"
+          curl -sf http://localhost:5000/v2/kali-cache/manifests/mcp-latest >/dev/null && echo "✅ Found mcp cache" || echo "❌ No mcp cache"
 
       - name: Build with registry cache (optimized sequential)
         run: |
@@ -171,6 +173,31 @@ jobs:
             --set="systemd.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:systemd-latest,registry.insecure=true" \
             --set="systemd.cache-to=type=registry,ref=$CACHE_REGISTRY/kali-cache:systemd-latest,mode=max,image-manifest=true,oci-mediatypes=true,registry.insecure=true" \
             dependent
+
+          # Step 3: Build the sandbox-policy test image. It starts from
+          # kali-rolling rather than base, so it shares no layers and gets a
+          # cache ref of its own.
+          echo "🔨 Building test image with registry cache..."
+          docker buildx bake \
+            --builder $BUILDER_NAME \
+            --progress=plain \
+            --push \
+            --set="test.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:test-latest,registry.insecure=true" \
+            --set="test.cache-to=type=registry,ref=$CACHE_REGISTRY/kali-cache:test-latest,mode=max,image-manifest=true,oci-mediatypes=true,registry.insecure=true" \
+            independent
+
+          # Step 4: Build the MCP gateway image. Like systemd it is FROM base,
+          # so it reuses base layers from the registry cache and keeps a cache
+          # ref of its own for the MCP layer (node, agentgateway, servers, Burp).
+          echo "🔨 Building mcp image with registry cache..."
+          docker buildx bake \
+            --builder $BUILDER_NAME \
+            --progress=plain \
+            --push \
+            --set="mcp.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:base-latest,registry.insecure=true" \
+            --set="mcp.cache-from=type=registry,ref=$CACHE_REGISTRY/kali-cache:mcp-latest,registry.insecure=true" \
+            --set="mcp.cache-to=type=registry,ref=$CACHE_REGISTRY/kali-cache:mcp-latest,mode=max,image-manifest=true,oci-mediatypes=true,registry.insecure=true" \
+            gateway
         env:
           DOCKER_BUILDKIT: 1
           TAG: ${{ steps.meta.outputs.version }}
@@ -203,7 +230,7 @@ jobs:
           curl -s http://localhost:5000/v2/kali-cache/tags/list | jq '.'
 
           echo "Cache sizes:"
-          for tag in base-latest systemd-latest; do
+          for tag in base-latest systemd-latest test-latest mcp-latest; do
             if curl -sf http://localhost:5000/v2/kali-cache/manifests/$tag >/dev/null; then
               size=$(curl -sf http://localhost:5000/v2/kali-cache/manifests/$tag | jq -r '.config.size // "unknown"')
               echo "  kali-cache:$tag -> ${size} bytes"
@@ -243,6 +270,8 @@ jobs:
           echo "|-------|--------|-----------|----------|" >> $GITHUB_STEP_SUMMARY
           echo "| vxcontrol/kali-linux:${{ steps.meta.outputs.version }} | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance |" >> $GITHUB_STEP_SUMMARY
           echo "| vxcontrol/kali-linux:systemd | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance, ⚙️ Systemd |" >> $GITHUB_STEP_SUMMARY
+          echo "| vxcontrol/kali-linux:test | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance, 🧪 Sandbox policy |" >> $GITHUB_STEP_SUMMARY
+          echo "| vxcontrol/kali-linux:mcp | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance, 🤖 MCP gateway |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**📋 Build Details:**" >> $GITHUB_STEP_SUMMARY
           echo "- **Version:** \`${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY

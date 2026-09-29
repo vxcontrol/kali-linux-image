@@ -1,0 +1,214 @@
+# agentgateway configuration for kali-mcp.
+#
+# Every MCP server this image fronts is declared here with the exact command
+# that starts it. All of them speak stdio; agentgateway spawns each as a child
+# process, multiplexes them into ONE MCP server, and serves it over streamable
+# HTTP at /mcp (and SSE at /sse) on a single port.
+#
+# THIS FILE IS A TEMPLATE. entrypoint.sh runs render-config.py over it to
+# produce /run/kali-mcp/gateway.yaml, which is what agentgateway actually
+# loads. Rendering does five things and nothing else:
+#   * replaces the placeholder key hash with SHA-256 of $MCP_GATEWAY_TOKEN
+#   * sets the listen port from $MCP_GATEWAY_PORT
+#   * injects the metasploit target's $MSF_PASSWORD, minted per container start
+#   * drops targets named in $KALI_MCP_DISABLE
+#   * appends `burp`: a stdio proxy to in-container Burp when $BURP_LOCAL is
+#     set, or a remote target when $BURP_MCP_URL is set
+# The rendered file therefore never contains the token itself, only its hash.
+
+mcp:
+  port: 8081
+
+  # Tool names are always prefixed with the target name (nmap_port_scan,
+  # nuclei_scan, ...). "conditional" would drop the prefix when only one target
+  # is up, which would silently change tool names for clients as servers come
+  # and go.
+  prefixMode: always
+
+  # A gateway fronting a dozen-plus servers must not go dark because one of
+  # them is unhappy. failOpen skips the failed target and serves the rest;
+  # agentgateway logs "upstream '<name>' failed" for the one that dropped out.
+  failureMode: failOpen
+
+  policies:
+    apiKey:
+      # strict = a request without a valid key is rejected. The other modes
+      # ("optional", "permissive") let unauthenticated requests through, which
+      # for this image would mean an open remote-code-execution surface.
+      mode: strict
+      # Default credential location is `Authorization: Bearer <token>`.
+      keys:
+        # Only the SHA-256 of the token is ever written to disk. Rendered by
+        # render-config.py from $MCP_GATEWAY_TOKEN.
+        - keyHash: "sha256:__MCP_GATEWAY_TOKEN_SHA256__"
+
+  targets:
+
+    # --- Network reconnaissance -------------------------------------------
+
+    # nmap: port_scan, service_scan, os_detection, script_scan, quick_scan,
+    # get_scan_results. Raw-socket scan types (-sS, -O) need NET_RAW/NET_ADMIN.
+    - name: nmap
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/reconnaissance/nmap-mcp/server.py"]
+        env:
+          NMAP_OUTPUT_DIR: /opt/kali-mcp/output/nmap
+
+    # masscan: high-rate port sweeps. Always needs NET_RAW.
+    - name: masscan
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/reconnaissance/masscan-mcp/server.py"]
+        env:
+          MASSCAN_OUTPUT_DIR: /opt/kali-mcp/output/masscan
+
+    # whatweb: web technology / CMS fingerprinting.
+    - name: whatweb
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/reconnaissance/whatweb-mcp/server.py"]
+        env:
+          WHATWEB_OUTPUT_DIR: /opt/kali-mcp/output/whatweb
+
+    # pdtools: the ProjectDiscovery chain (subfinder, dnsx, naabu, httpx,
+    # katana, nuclei) plus a bug-hunting workflow that pipes them together.
+    # Every binary it shells out to is already in the base image.
+    - name: pdtools
+      stdio:
+        cmd: /opt/node/bin/node
+        args: ["/opt/kali-mcp/servers/pd-tools-mcp/build/index.js"]
+
+    # --- Web application testing ------------------------------------------
+
+    # nuclei: template-based vulnerability scanning.
+    - name: nuclei
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/web-security/nuclei-mcp/server.py"]
+        env:
+          NUCLEI_OUTPUT_DIR: /opt/kali-mcp/output/nuclei
+          # Baked at build time by `nuclei -ut`. If the directory is absent the
+          # server omits -templates and nuclei falls back to its own download.
+          NUCLEI_TEMPLATES_PATH: /root/nuclei-templates
+
+    # sqlmap: SQL injection detection, enumeration and dumping.
+    - name: sqlmap
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/web-security/sqlmap-mcp/server.py"]
+        env:
+          SQLMAP_OUTPUT_DIR: /opt/kali-mcp/output/sqlmap
+          # Upstream defaults to /opt/sqlmap/sqlmap.py, which is where its own
+          # container clones sqlmap. Kali packages it, and /usr/bin/sqlmap is a
+          # symlink to this file; the server invokes it as `python <path>`.
+          SQLMAP_PATH: /usr/share/sqlmap/sqlmap.py
+
+    # ffuf: directory, file, parameter and vhost fuzzing.
+    - name: ffuf
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/web-security/ffuf-mcp/server.py"]
+        env:
+          FFUF_OUTPUT_DIR: /opt/kali-mcp/output/ffuf
+          # Kali's wordlist tree: dirb, seclists, rockyou, wfuzz, nmap.lst ...
+          FFUF_WORDLISTS_DIR: /usr/share/wordlists
+
+    # waybackurls: historical URLs for a host from the Wayback Machine.
+    - name: waybackurls
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/web-security/waybackurls-mcp/server.py"]
+        env:
+          WAYBACKURLS_OUTPUT_DIR: /opt/kali-mcp/output/waybackurls
+
+    # playwright: a real browser for the agent -- accessibility-tree snapshots,
+    # clicks, forms, network inspection. Driven against the Chromium that Kali
+    # already installs, so no Playwright browser bundle is downloaded.
+    # --isolated keeps the profile in memory; --no-sandbox is required because
+    # Chromium's sandbox needs privileges a hardened container does not grant.
+    - name: playwright
+      stdio:
+        # The bin @playwright/mcp installs globally; invoked directly rather
+        # than through npx so nothing resolves packages at spawn time.
+        cmd: /opt/node/bin/playwright-mcp
+        args:
+          - "--headless"
+          - "--isolated"
+          - "--no-sandbox"
+          - "--browser=chromium"
+          - "--executable-path=/usr/bin/chromium"
+          - "--output-dir=/opt/kali-mcp/output/playwright"
+
+    # --- Exploitation ------------------------------------------------------
+
+    # metasploit: module search, exploit/auxiliary/post execution, payload
+    # generation, session and listener management. Talks to msfrpcd over RPC on
+    # localhost; entrypoint.sh starts msfrpcd and injects MSF_PASSWORD here.
+    - name: metasploit
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args:
+          - "/opt/kali-mcp/servers/metasploit-mcp/MetasploitMCP.py"
+          - "--transport"
+          - "stdio"
+        env:
+          MSF_SERVER: 127.0.0.1
+          MSF_PORT: "55553"
+          MSF_SSL: "false"
+          PAYLOAD_SAVE_DIR: /opt/kali-mcp/output/payloads
+          # MSF_PASSWORD is injected at render time from the ephemeral password
+          # entrypoint.sh generates for msfrpcd.
+
+    # searchsploit: offline Exploit-DB search and exploit retrieval.
+    - name: searchsploit
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/exploitation/searchsploit-mcp/server.py"]
+        env:
+          SEARCHSPLOIT_OUTPUT_DIR: /opt/kali-mcp/output/searchsploit
+          EXPLOITDB_PATH: /usr/share/exploitdb
+
+    # --- Password cracking, forensics, traffic -----------------------------
+
+    # hashcat: hash-type identification, dictionary/brute/hybrid/rule attacks,
+    # session tracking. CPU-only inside a container unless a GPU is passed in.
+    - name: hashcat
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/hashcat-mcp/hashcat_mcp_server.py"]
+        env:
+          # Not /usr/bin/hashcat: the server treats dirname(HASHCAT_PATH) as its
+          # scratch directory and its --identify path execs the literal name
+          # "hashcat.exe". /opt/kali-mcp/hashcat-home is a writable directory
+          # holding both aliases; see the shim layer in the Dockerfile.
+          HASHCAT_PATH: /opt/kali-mcp/hashcat-home/hashcat
+          # Spelled out because env values are literal here -- no $PATH to
+          # expand -- and only this server needs the .exe alias on PATH.
+          PATH: /opt/kali-mcp/hashcat-home:/opt/venv/bin:/root/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          # The server resolves these relative to the process CWD by default,
+          # and agentgateway spawns children in its own CWD, so pin them.
+          HASHCAT_MODES_CSV: /opt/kali-mcp/servers/hashcat-mcp/hashcat_modes.csv
+          HASHCAT_SESSION_DB: /opt/kali-mcp/state/hashcat/sessions.db
+          HASHCAT_PRESETS_FILE: /opt/kali-mcp/state/hashcat/attack_presets.json
+          HASHCAT_LOG_LEVEL: INFO
+
+    # binwalk: firmware signature scanning, entropy analysis, extraction.
+    - name: binwalk
+      stdio:
+        cmd: /opt/venv/bin/python3
+        args: ["/opt/kali-mcp/servers/security-hub/binary-analysis/binwalk-mcp/server.py"]
+        env:
+          BINWALK_OUTPUT_DIR: /opt/kali-mcp/output/binwalk
+          BINWALK_UPLOAD_DIR: /work
+
+    # tshark: read and filter pcaps, follow streams, protocol statistics, live
+    # capture (live capture needs NET_RAW and NET_ADMIN).
+    - name: tshark
+      stdio:
+        cmd: /opt/venv/bin/mcp-wireshark
+        args: []
+
+    # `burp` is appended at render time: either the in-container stdio proxy
+    # (BURP_LOCAL, default when BURP_ACCEPT_EULA is set) or a remote SSE/HTTP
+    # target (BURP_MCP_URL). See README.md.

@@ -1,0 +1,74 @@
+# kali-mcp — token-authenticated MCP gateway over the Kali toolset.
+#
+#   cp .env.example .env
+#   # set MCP_GATEWAY_TOKEN (openssl rand -hex 32)
+#   # BURP_ACCEPT_EULA=true starts in-container Burp and joins it to /mcp
+#   docker compose up -d          # runs vxcontrol/kali-linux:mcp from Docker Hub
+#
+# To run a locally built image instead, build it from the repository ROOT
+# (one directory up) and set KALI_MCP_IMAGE=local/kali-linux:mcp in .env:
+#   (cd .. && docker buildx bake mcp --set="mcp.tags=local/kali-linux:mcp" --load)
+#
+# Compose interpolates .env in this directory. The container refuses to start
+# without a token of at least 16 characters.
+#
+# network_mode: host shares the host network namespace. `ports:` is ignored
+# here; the listen port is MCP_GATEWAY_PORT. The gateway binds 0.0.0.0 — the
+# image has no listen-address setting — so MCP_GATEWAY_IP is the address
+# clients use, not a bind filter. The unauthenticated admin / metrics /
+# readiness ports (15000 / 15020 / 15021) land on the host as well.
+# Agentgateway 1.5.0 has no bind-address config field: both `mcp.address` and
+# `gateways.default.address` fail validation. Keep host mode and restrict the
+# destination IP in the host firewall, or build a patched agentgateway; see
+# "Host networking and bind address" in README.md.
+#
+# Docker Desktop (Mac/Windows): "host" is the Linux VM, not the desktop
+# loopback. curl https://127.0.0.1:8081 on the Mac will fail; talk to /mcp
+# via `docker exec` or drop host network and publish 8081.
+#
+# Local Burp listens only on 127.0.0.1:9876. The gateway reaches it through
+# the stdio proxy; do not publish 9876.
+
+services:
+  kali-mcp:
+    image: ${KALI_MCP_IMAGE:-vxcontrol/kali-linux:mcp}
+    container_name: kali-mcp
+    hostname: kali-mcp
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    # Chromium (playwright) and Burp both want more than Docker's 64MB /dev/shm.
+    shm_size: ${KALI_MCP_SHM_SIZE:-2gb}
+    environment:
+      MCP_GATEWAY_TOKEN: ${MCP_GATEWAY_TOKEN:?MCP_GATEWAY_TOKEN must be set in .env (openssl rand -hex 32)}
+      MCP_GATEWAY_IP: ${MCP_GATEWAY_IP:-127.0.0.1}
+      MCP_GATEWAY_PORT: ${MCP_GATEWAY_PORT:-8081}
+      MCP_GATEWAY_USE_TLS: ${MCP_GATEWAY_USE_TLS:-true}
+      MCP_GATEWAY_TLS_CERT: ${MCP_GATEWAY_TLS_CERT:-/opt/kali-mcp/ssl/server.crt}
+      MCP_GATEWAY_TLS_KEY: ${MCP_GATEWAY_TLS_KEY:-/opt/kali-mcp/ssl/server.key}
+      MCP_GATEWAY_TLS_CA: ${MCP_GATEWAY_TLS_CA:-/opt/kali-mcp/ssl/service_ca.crt}
+      MCP_GATEWAY_TLS_SAN: ${MCP_GATEWAY_TLS_SAN:-}
+      KALI_MCP_DISABLE: ${KALI_MCP_DISABLE:-}
+      BURP_ACCEPT_EULA: ${BURP_ACCEPT_EULA:-true}
+      BURP_HEAP: ${BURP_HEAP:-2g}
+      BURP_HEADLESS: ${BURP_HEADLESS:-xvfb}
+      BURP_MCP_URL: ${BURP_MCP_URL:-}
+      BURP_MCP_TRANSPORT: ${BURP_MCP_TRANSPORT:-sse}
+    volumes:
+      - kali-mcp-work:/work
+      - kali-mcp-burp:/opt/kali-mcp/state/burp
+      - ${KALI_MCP_SSL_DIR:-kali-mcp-ssl}:/opt/kali-mcp/ssl
+    logging:
+      options:
+        max-size: 50m
+        max-file: "7"
+
+volumes:
+  kali-mcp-work:
+    driver: local
+  kali-mcp-burp:
+    driver: local
+  kali-mcp-ssl:
+    driver: local

@@ -1,0 +1,39 @@
+# Build-context hygiene for `docker buildx bake` (context = repo root).
+# Only the files the Dockerfile COPYs need to reach the daemon:
+#   container-entrypoint.sh                 (systemd stage)
+#   mcp/gateway.yaml mcp/render-config.py mcp/patch-vendored.py
+#   mcp/entrypoint.sh mcp/setup-tls.sh mcp/start-burp.sh mcp/burp/pins.sh   (mcp stage)
+# Everything excluded below is documentation, tests, local infra, or secrets
+# that must never enter an image layer.
+
+.git
+.gitignore
+.github/
+.dockerignore
+
+# OS / editor cruft
+**/.DS_Store
+**/*.swp
+**/*.swo
+
+# Python caches
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+
+# Local registry cache infrastructure (not part of any image)
+registry/
+
+# Local secrets must never enter the build context or an image layer
+mcp/.env
+
+# Docs, tests and standalone-run helpers are not COPYed into any image
+README.md
+LICENSE
+mcp/README.md
+mcp/docker-compose.yml
+mcp/smoke-test.sh
+mcp/smoke-target.py
+mcp/render-config_test.py
+mcp/setup_tls_test.py
+mcp/.env.example

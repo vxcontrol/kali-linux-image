@@ -77,7 +77,7 @@ test_tool "ncrack" "ncrack --version"
 test_tool "ike-scan" "which ike-scan"
 
 # Web application testing
-test_tool "gobuster" "gobuster version"
+test_tool "gobuster" "gobuster --version"
 test_tool "dirb" "which dirb"
 test_tool "dirb-gendict" "which dirb-gendict"
 test_tool "dirsearch" "which dirsearch"
@@ -92,6 +92,9 @@ test_tool "commix" "which commix"
 test_tool "davtest" "which davtest"
 test_tool "skipfish" "which skipfish"
 test_tool "ffuf" "ffuf -V"
+test_tool "xsstrike" "which xsstrike"
+test_tool "sstimap" "which sstimap"
+test_tool "crlfuzz" "which crlfuzz"
 
 # Brute force and password attacks
 test_tool "hydra" "which hydra"
@@ -102,6 +105,8 @@ test_tool "patator" "which patator"
 test_tool "hashid" "which hashid"
 test_tool "hash-identifier" "which hash-identifier"
 test_tool "hashcat" "hashcat --version"
+test_tool "legba" "legba --version"
+test_tool "bopscrk" "which bopscrk"
 
 # John the Ripper converters
 test_tool "7z2john" "which 7z2john"
@@ -176,6 +181,9 @@ test_tool "mimikatz" "which mimikatz"
 test_tool "lsassy" "which lsassy"
 test_tool "pypykatz" "which pypykatz"
 test_tool "pywerview" "which pywerview"
+test_tool "ldeep" "which ldeep"
+test_tool "krbrelayx" "which krbrelayx"
+test_tool "bloodhound-ce-python" "which bloodhound-ce-python"
 
 # Kerberos tools
 test_tool "minikerberos-getTGT" "which minikerberos-getTGT"
@@ -208,6 +216,8 @@ test_tool "iodine" "which iodine"
 test_tool "ptunnel" "which ptunnel"
 test_tool "pwnat" "which pwnat"
 test_tool "chisel" "which chisel"
+test_tool "ligolo-proxy" "which ligolo-proxy"
+test_tool "ligolo-agent" "which ligolo-agent"
 
 # Network utilities
 test_tool "socat" "socat -V"
@@ -215,8 +225,9 @@ test_tool "netcat" "which netcat" "netcat-traditional"
 test_tool "nc.openbsd" "which nc" "netcat-openbsd"
 test_tool "ncat" "ncat --version"
 test_tool "rlwrap" "which rlwrap"
-test_tool "telnet" "which telnet" "telnet-ssl"
+test_tool "telnet" "which telnet" "telnet"
 test_tool "ssh" "ssh -V" "openssh-client"
+test_tool "simplehttpserver" "simplehttpserver -version"
 
 # Databases
 test_tool "sqsh" "which sqsh"
@@ -241,6 +252,11 @@ test_tool "steghide" "steghide --version"
 test_tool "stegosuite" "which stegosuite"
 test_tool "foremost" "which foremost"
 
+# Malicious document analysis
+test_tool "olevba" "which olevba" "oletools"
+test_tool "oleid" "which oleid"
+test_tool "rtfobj" "which rtfobj"
+
 # Information gathering and OSINT
 test_tool "searchsploit" "which searchsploit"
 test_tool "shodan" "which shodan"
@@ -252,6 +268,8 @@ test_tool "subfinder" "subfinder -version"
 test_tool "shuffledns" "shuffledns -version"
 test_tool "dnsx" "dnsx -version"
 test_tool "assetfinder" "which assetfinder"
+test_tool "alterx" "alterx -version"
+test_tool "mapcidr" "mapcidr -version"
 
 # Web application reconnaissance
 test_tool "httpx" "httpx -version"
@@ -259,10 +277,16 @@ test_tool "katana" "katana -version"
 test_tool "hakrawler" "which hakrawler"
 test_tool "waybackurls" "which waybackurls"
 test_tool "gau" "gau --version"
+test_tool "urlfinder" "urlfinder -version"
+test_tool "uro" "which uro"
+test_tool "tlsx" "tlsx -version"
 
 # Vulnerability scanners
 test_tool "nuclei" "nuclei -version"
 test_tool "naabu" "naabu -version"
+test_tool "cdncheck" "cdncheck -version"
+test_tool "interactsh-client" "interactsh-client -version"
+test_tool "vulnx" "which vulnx"
 
 # Wordlists and dictionaries
 test_tool "wordlists" "ls /usr/share/wordlists"

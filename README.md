@@ -69,6 +69,44 @@ docker buildx build --target systemd --load -t local/kali-linux:systemd .
 docker run --rm -it local/kali-linux:systemd bash
 ```
 
+### 3. Sandbox Policy Test Image
+Minimal image PentAGI starts to verify that its agents reach a Docker daemon of their own that refuses host-escape requests. It carries a Docker client and curl and nothing else — the tooling those checks exercise lives in the containers they create — so it is roughly 170 MB against 14.6 GB for the full image, which matters because it is pulled on every startup check. Built from `kalilinux/kali-rolling` directly, so it shares no layers with the other two.
+
+PentAGI points at it with `DOCKER_DEFAULT_IMAGE_FOR_TEST`, which defaults to this tag.
+
+```bash
+# Pull test image from Docker Hub
+docker pull vxcontrol/kali-linux:test
+
+# Build test variant from source (using Docker Buildx Bake)
+docker buildx bake test --set="test.tags=local/kali-linux:test" --load
+
+# Alternative: Traditional docker buildx build
+docker buildx build --target test --load -t local/kali-linux:test .
+```
+
+### 4. MCP Gateway Image
+The full penetration-testing toolkit exposed as a single token-authenticated **MCP endpoint**, so an AI agent (Claude Code, Claude Desktop, or PentAGI) can drive `nmap`, `metasploit`, `nuclei`, `sqlmap`, `ffuf`, `hashcat`, `tshark`, the ProjectDiscovery chain, a real Chromium browser, and optional **Burp Suite** over one HTTPS/Bearer connection. It is the `mcp` stage of this repository's root `Dockerfile`, built `FROM` the base image (so it reuses the base layers) and adds [`agentgateway`](https://github.com/agentgateway/agentgateway) plus ~15 stdio MCP servers. See [`mcp/README.md`](mcp/README.md) for the full server/tool inventory, authentication, and TLS details.
+
+```bash
+# Pull mcp image from Docker Hub
+docker pull vxcontrol/kali-linux:mcp
+
+# Build mcp variant from source (using Docker Buildx Bake, from the repo root)
+docker buildx bake mcp --set="mcp.tags=local/kali-linux:mcp" --load
+
+# Alternative: Traditional docker buildx build
+docker buildx build --target mcp --load -t local/kali-linux:mcp .
+
+# Run (a bearer token is REQUIRED; the gateway refuses to start without one)
+docker run -d --name kali-mcp \
+  --cap-add=NET_RAW --cap-add=NET_ADMIN \
+  -e MCP_GATEWAY_TOKEN="$(openssl rand -hex 32)" \
+  -e MCP_GATEWAY_IP=127.0.0.1 \
+  -p 127.0.0.1:8081:8081 \
+  vxcontrol/kali-linux:mcp
+```
+
 ## Included Tools
 
 The base image includes carefully curated CLI tools organized by security testing categories:
@@ -101,6 +139,8 @@ The base image includes carefully curated CLI tools organized by security testin
 - `dnsx` - Fast and multi-purpose DNS toolkit
 - `assetfinder` - Asset discovery and subdomain enumeration
 - `chaos` - Subdomain enumeration via Project Discovery API
+- `alterx` - Fast, customizable subdomain permutation/wordlist generator
+- `mapcidr` - CIDR/IP range expansion and aggregation for scan scoping
 
 ### **Web Application Reconnaissance**
 - `httpx` - Fast HTTP probing and technology detection
@@ -108,6 +148,9 @@ The base image includes carefully curated CLI tools organized by security testin
 - `hakrawler` - Simple and fast web crawler
 - `waybackurls` - Historical URL discovery via Wayback Machine
 - `gau` - Get All URLs from various sources (AlienVault OTX, Wayback, Common Crawl)
+- `urlfinder` - Passive URL discovery from online sources (ProjectDiscovery)
+- `uro` - Declutters and deduplicates large URL lists for cleaner pipelines
+- `tlsx` - Fast TLS certificate/SAN grabber for host and scope intelligence
 
 ### **Web Application Testing & Exploitation**
 - `gobuster` - Directory/file and DNS enumeration
@@ -123,10 +166,16 @@ The base image includes carefully curated CLI tools organized by security testin
 - `davtest` - WebDAV server testing utility
 - `skipfish` - Web application security reconnaissance
 - `ffuf` - Fast web fuzzer written in Go
+- `xsstrike` - Advanced XSS discovery with payload generation and WAF detection
+- `sstimap` - Server-side template injection detection and exploitation
+- `crlfuzz` - Fast CRLF injection / HTTP response splitting scanner
 
 ### **Vulnerability Scanning & Security Assessment**
 - `nuclei` - Fast vulnerability scanner based on YAML templates
 - `naabu` - Fast port scanner for security assessments
+- `interactsh-client` - Out-of-band (OOB) interaction capture for blind/OOB vulns
+- `cdncheck` - Detects CDN/WAF/cloud ranges to keep scans in scope
+- `vulnx` - CVE/exploit intelligence lookup (ProjectDiscovery, keyless)
 
 ### **Brute Force & Password Attacks**
 - `hydra` - Network authentication brute-forcer
@@ -137,6 +186,8 @@ The base image includes carefully curated CLI tools organized by security testin
 - `hashid` - Hash type identifier
 - `hash-identifier` - Python hash identification tool
 - `hashcat` - Advanced password recovery utility
+- `legba` - Fast multiprotocol credential brute-forcer / sprayer (single binary)
+- `bopscrk` - Generates smart, target-tailored wordlists from OSINT terms
 
 ### **John the Ripper Format Converters**
 - `7z2john`, `bitcoin2john`, `keepass2john` - Archive and cryptocurrency hash converters
@@ -196,6 +247,9 @@ The base image includes carefully curated CLI tools organized by security testin
 - `lsassy` - Remote LSASS memory dumping
 - `pypykatz` - Python implementation of Mimikatz
 - `pywerview` - Python alternative to PowerView
+- `ldeep` - In-depth LDAP enumeration to structured, machine-readable output
+- `krbrelayx` - Kerberos relaying and unconstrained-delegation abuse toolkit
+- `bloodhound-ce-python` - BloodHound CE-compatible AD data collector
 
 ### **Kerberos Authentication Tools**
 - `minikerberos-getTGT` - Obtain Kerberos Ticket Granting Tickets
@@ -226,6 +280,7 @@ The base image includes carefully curated CLI tools organized by security testin
 - `ptunnel` - ICMP tunneling tool
 - `pwnat` - NAT traversal utility
 - `chisel` - Fast TCP/UDP tunnel over HTTP
+- `ligolo-proxy` / `ligolo-agent` - Modern TUN-based pivoting (ligolo-ng; prebuilt agent/proxy binaries also under `/usr/share/ligolo-ng-common-binaries`)
 
 ### **Network Utilities & Communication**
 - `socat` - Multipurpose relay tool
@@ -235,6 +290,7 @@ The base image includes carefully curated CLI tools organized by security testin
 - `rlwrap` - Readline wrapper for improved shell interaction
 - `telnet` - Telnet client with SSL support
 - `ssh` - Secure Shell client
+- `simplehttpserver` - Fast HTTP/HTTPS file server for hosting payloads/callbacks
 
 ### **Database Client Tools**
 - `sqsh` - SQL shell for Sybase and Microsoft SQL Server
@@ -257,6 +313,9 @@ The base image includes carefully curated CLI tools organized by security testin
 - `steghide` - Steganography hiding and detection tool
 - `stegosuite` - Graphical steganography tool
 - `foremost` - File carving and recovery utility
+
+### **Malicious Document Analysis**
+- `oletools` - `olevba`/`oleid`/`rtfobj` toolkit for analyzing Office/OLE documents
 
 ### **OSINT & Information Gathering**
 - `searchsploit` - Exploit database search utility
@@ -525,7 +584,7 @@ This project uses Docker Buildx Bake with advanced BuildKit configuration for ef
 
 **Key Features:**
 - **Multi-platform builds**: linux/amd64, linux/arm64 
-- **Sequential dependency builds**: Base images built first, systemd images reuse layers
+- **Sequential dependency builds**: `base` is built first; `systemd` and `mcp` reuse its layers, while `test` builds independently from `kali-rolling`
 - **Persistent builder**: `kali-builder` with smart cache management (50GB limit, automatic GC)
 - **Automatic cache invalidation**: Based on Dockerfile changes and base image updates
 - **Security attestations**: SBOM and provenance generation for published images
@@ -566,6 +625,8 @@ The GitHub Actions workflow (`.github/workflows/docker-build.yml`) provides:
 |---------|---------------------|-------------------------------|
 | **Base Image** | `docker build -t local/kali-linux .` | `docker buildx bake base --load` |
 | **Systemd Image** | `docker build --target systemd -t local/kali-linux:systemd .` | `docker buildx bake systemd --load` |
+| **Test Image** | `docker build --target test -t local/kali-linux:test .` | `docker buildx bake test --load` |
+| **MCP Image** | `docker build --target mcp -t local/kali-linux:mcp .` | `docker buildx bake mcp --load` |
 | **Multi-platform** | Manual builds for each platform | Automatic multi-platform support |
 | **Configuration** | Command-line parameters | Declarative `docker-bake.hcl` + `buildkitd.toml` |
 | **Cache Management** | Manual cleanup required | Automatic garbage collection with policies |
@@ -630,6 +691,32 @@ docker buildx bake systemd --set="systemd.platform=linux/arm64" \
 # Build systemd variant for AMD64
 docker buildx bake systemd --set="systemd.platform=linux/amd64" \
   --set="systemd.tags=local/kali-linux:systemd" --load
+```
+
+#### Sandbox Policy Test Image Only
+```bash
+# Minimal image (Docker client + curl); built FROM kali-rolling, not base
+docker buildx bake test --set="test.platform=linux/arm64" \
+  --set="test.tags=local/kali-linux:test" --load
+
+# Alternative: Traditional docker buildx build
+docker buildx build --target test --platform linux/arm64 \
+  --load -t local/kali-linux:test .
+```
+
+#### MCP Gateway Image Only
+```bash
+# MCP gateway; built FROM base, so it reuses the base layers
+docker buildx bake mcp --set="mcp.platform=linux/arm64" \
+  --set="mcp.tags=local/kali-linux:mcp" --load
+
+# Alternative: Traditional docker buildx build
+docker buildx build --target mcp --platform linux/arm64 \
+  --load -t local/kali-linux:mcp .
+
+# Skip the ~700MB Burp layer for a smaller/faster build
+docker buildx bake mcp --set="mcp.args.WITH_BURP=false" \
+  --set="mcp.tags=local/kali-linux:mcp" --load
 ```
 
 ### Multi-Platform Builds
