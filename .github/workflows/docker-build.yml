@@ -220,6 +220,45 @@ jobs:
           echo "✅ Image exported locally as vxcontrol/kali-linux:scan-target"
           docker images | grep "vxcontrol/kali-linux" || echo "No images found"
 
+      - name: Generate SBOMs (packages-only, published as artifacts)
+        # BuildKit caps an in-image SBOM attestation at 40MiB, but a full syft SBOM
+        # of these images is ~165MB, so the in-build attestation is provenance-only
+        # (see docker-bake.hcl). Instead we publish slim, packages-only SBOMs as
+        # workflow artifacts: SYFT_RELATIONSHIPS_PACKAGE_FILE_OWNERSHIP=false drops
+        # the per-file (package-owned) entries and their relationships that cause the
+        # bloat, leaving the full package inventory (~10MB). syft runs from its own
+        # image, so nothing extra is installed on the runner.
+        continue-on-error: true
+        run: |
+          set -u
+          mkdir -p sboms
+          SYFT_IMAGE="anchore/syft:latest"
+          gen() {  # <syft-source> <output-filename>
+            echo "🧾 SBOM: $1 -> $2"
+            docker run --rm \
+              -e SYFT_RELATIONSHIPS_PACKAGE_FILE_OWNERSHIP=false \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$(pwd)/sboms:/out" \
+              "$SYFT_IMAGE" "$1" -q -o "spdx-json=/out/$2" \
+              || echo "⚠️  SBOM generation failed for $1 (non-fatal)"
+          }
+          # base: reuse the already-loaded scan-target image (no extra pull)
+          gen "docker:vxcontrol/kali-linux:scan-target" "kali-linux-latest.spdx.json"
+          # other tags: scan the pushed registry images one at a time (disk-friendly)
+          for tag in systemd test mcp; do
+            gen "registry:vxcontrol/kali-linux:${tag}" "kali-linux-${tag}.spdx.json"
+          done
+          echo "=== generated SBOMs ==="; ls -lh sboms/ 2>/dev/null || echo "none"
+
+      - name: Upload SBOM artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-spdx-json
+          path: sboms/*.spdx.json
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Post-build cache analysis
         run: |
           echo "=== Build Cache Analysis (After Build) ==="
@@ -268,10 +307,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Image | Status | Platforms | Features |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|-----------|----------|" >> $GITHUB_STEP_SUMMARY
-          echo "| vxcontrol/kali-linux:${{ steps.meta.outputs.version }} | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance |" >> $GITHUB_STEP_SUMMARY
-          echo "| vxcontrol/kali-linux:systemd | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance, ⚙️ Systemd |" >> $GITHUB_STEP_SUMMARY
-          echo "| vxcontrol/kali-linux:test | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance, 🧪 Sandbox policy |" >> $GITHUB_STEP_SUMMARY
-          echo "| vxcontrol/kali-linux:mcp | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🔒 SBOM, 🛡️ Provenance, 🤖 MCP gateway |" >> $GITHUB_STEP_SUMMARY
+          echo "| vxcontrol/kali-linux:${{ steps.meta.outputs.version }} | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🛡️ Provenance |" >> $GITHUB_STEP_SUMMARY
+          echo "| vxcontrol/kali-linux:systemd | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🛡️ Provenance, ⚙️ Systemd |" >> $GITHUB_STEP_SUMMARY
+          echo "| vxcontrol/kali-linux:test | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🛡️ Provenance, 🧪 Sandbox policy |" >> $GITHUB_STEP_SUMMARY
+          echo "| vxcontrol/kali-linux:mcp | ✅ Built & Pushed | linux/amd64, linux/arm64 | 🛡️ Provenance, 🤖 MCP gateway |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**📋 Build Details:**" >> $GITHUB_STEP_SUMMARY
           echo "- **Version:** \`${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
@@ -280,7 +319,7 @@ jobs:
           echo "- **Triggered by:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**🛡️ Security Features:**" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Software Bill of Materials (SBOM) generated" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Packages-only SBOMs published as workflow artifacts (\`sbom-spdx-json\`)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Build provenance attestation created" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Multi-platform support (AMD64 + ARM64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

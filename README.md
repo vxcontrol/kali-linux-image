@@ -587,22 +587,22 @@ This project uses Docker Buildx Bake with advanced BuildKit configuration for ef
 - **Sequential dependency builds**: `base` is built first; `systemd` and `mcp` reuse its layers, while `test` builds independently from `kali-rolling`
 - **Persistent builder**: `kali-builder` with smart cache management (50GB limit, automatic GC)
 - **Automatic cache invalidation**: Based on Dockerfile changes and base image updates
-- **Security attestations**: SBOM and provenance generation for published images
+- **Security attestations**: Build provenance attestation on published images; SBOMs published as CI artifacts
 - **Trivy vulnerability scanning**: Optimized scanning with SARIF output to GitHub Security tab
 - **Container metadata**: OCI-compliant labels and annotations
 
 #### Security & Compliance Features
-Our build system automatically generates security attestations for enhanced supply chain security:
+Our build system generates supply-chain security metadata:
 
-**Software Bill of Materials (SBOM):**
-- Complete inventory of all packages and dependencies
-- Vulnerability scanning and license compliance support
-- SPDX-compatible format for industry standard tooling
-
-**Build Provenance:**
-- Cryptographic proof of build integrity  
+**Build Provenance (attached to the image):**
+- Cryptographic proof of build integrity
 - Source repository and build environment verification
-- Immutable build artifact attestation with maximum security mode
+- Immutable build artifact attestation with maximum security mode (`mode=max`)
+
+**Software Bill of Materials (SBOM, published as a CI artifact):**
+- Complete package inventory in SPDX JSON format for industry-standard tooling
+- Published as the `sbom-spdx-json` workflow artifact (one file per image tag)
+- Generated packages-only (per-file entries omitted): a full file-level SBOM of these ~16GB images is ~165MB and exceeds BuildKit's 40MiB in-image attestation limit, so it is attached as a downloadable artifact rather than baked into the image
 
 **OCI Metadata:**
 - Comprehensive container labels following OpenContainer standards
@@ -617,7 +617,7 @@ The GitHub Actions workflow (`.github/workflows/docker-build.yml`) provides:
 - **Sequential build strategy**: Eliminates layer duplication between base and systemd targets
 - **Smart cache management**: Registry cache with automatic garbage collection policies
 - **Security scanning integration**: Trivy vulnerability scanning with GitHub Security tab upload
-- **Build attestations**: Automatic SBOM and provenance generation for supply chain security
+- **Build attestations**: Build provenance attached in-image; packages-only SBOMs uploaded as workflow artifacts
 - **Comprehensive reporting**: Build summary with security metrics and cache statistics
 
 #### Migration from Traditional Docker Build
@@ -801,29 +801,25 @@ docker buildx du --builder kali-builder
 
 ### Working with Security Attestations
 
-#### Viewing SBOM and Provenance
+#### Viewing Provenance and SBOM
 ```bash
-# Inspect image attestations
-docker buildx imagetools inspect vxcontrol/kali-linux:latest --format "{{json .Attestations}}"
+# Inspect the in-image provenance attestation
+docker buildx imagetools inspect vxcontrol/kali-linux:latest --format "{{json .Provenance}}"
 
-# Extract SBOM using Docker Scout (if available)
-docker scout sbom vxcontrol/kali-linux:latest
-
-# View attestations with cosign (requires cosign installation)
-cosign verify-attestation --type spdxjson vxcontrol/kali-linux:latest
-cosign verify-attestation --type slsaprovenance vxcontrol/kali-linux:latest
+# The SBOM is published as a CI workflow artifact (sbom-spdx-json), not attached
+# to the image. Download it from the GitHub Actions run, or generate one locally
+# (packages-only, SPDX JSON):
+docker run --rm -e SYFT_RELATIONSHIPS_PACKAGE_FILE_OWNERSHIP=false anchore/syft:latest \
+  registry:vxcontrol/kali-linux:latest -o spdx-json=kali-linux-latest.spdx.json
 ```
 
 #### Supply Chain Verification
 ```bash
-# Verify image signatures and attestations
-docker trust inspect vxcontrol/kali-linux:latest
+# Scan the image for CVEs (Trivy pulls its own vulnerability DB)
+docker run --rm aquasec/trivy:latest image vxcontrol/kali-linux:latest
 
-# Check for vulnerabilities using generated SBOM
-docker scout cves vxcontrol/kali-linux:latest
-
-# Audit compliance using SBOM data
-docker scout compliance vxcontrol/kali-linux:latest
+# Or use the downloaded SBOM artifact with grype
+docker run --rm -v "$PWD:/w" anchore/grype:latest sbom:/w/kali-linux-latest.spdx.json
 ```
 
 ### Build Configuration
@@ -851,7 +847,7 @@ group "default" {        # All images (parallel)
 - **Systemd target**: Extended image with systemctl support via docker-systemctl-replacement
 - **Multi-platform support**: Automatic builds for ARM64 and AMD64
 - **Layer optimization**: Systemd target reuses base layers via `contexts = { base = "target:base" }`
-- **Security attestations**: SBOM and provenance generation for published images
+- **Security attestations**: Build provenance on published images; packages-only SBOMs as CI artifacts
 - **OCI metadata**: Complete labeling following OpenContainer standards
 
 #### buildkitd.toml Configuration
@@ -984,7 +980,7 @@ docker buildx bake dependent --push
 **Security Integration:**
 - **Trivy vulnerability scanning** with optimized settings (60min timeout, skip large files)
 - **SARIF upload** to GitHub Security tab for vulnerability tracking
-- **SBOM generation** for supply chain compliance
+- **SBOM generation** (packages-only SPDX, uploaded as the `sbom-spdx-json` CI artifact)
 - **Build provenance** with maximum security attestation
 
 ## Tool Validation
